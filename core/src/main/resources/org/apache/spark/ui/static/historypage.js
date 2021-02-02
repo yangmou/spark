@@ -130,7 +130,7 @@ $(document).ready(function() {
         if (app["attempts"].length > 1) {
             hasMultipleAttempts = true;
         }
-        var num = app["attempts"].length;
+
         for (var j in app["attempts"]) {
           var attempt = app["attempts"][j];
           attempt["startTime"] = formatTimeMillis(attempt["startTimeEpoch"]);
@@ -140,8 +140,13 @@ $(document).ready(function() {
             (attempt.hasOwnProperty("attemptId") ? attempt["attemptId"] + "/" : "") + "logs";
           attempt["durationMillisec"] = attempt["duration"];
           attempt["duration"] = formatDuration(attempt["duration"]);
-          var app_clone = {"id" : id, "name" : name, "version": version, "num" : num, "attempts" : [attempt]};
-          array.push(app_clone);
+          attempt["id"] = id;
+          attempt["name"] = name;
+          attempt["version"] = version;
+          attempt["attemptUrl"] = uiRoot + "/history/" + id + "/" +
+            (attempt.hasOwnProperty("attemptId") ? attempt["attemptId"] + "/" : "") + "jobs/";
+
+          array.push(attempt);
         }
       }
       if(array.length < 20) {
@@ -164,17 +169,41 @@ $(document).ready(function() {
         var completedColumnName = 'completed';
         var durationColumnName = 'duration';
         var conf = {
+          "data": array,
           "columns": [
-            {name: 'version'},
-            {name: 'appId', type: "appid-numeric"},
-            {name: 'appName'},
-            {name: attemptIdColumnName},
-            {name: startedColumnName},
-            {name: completedColumnName},
-            {name: durationColumnName, type: "title-numeric"},
-            {name: 'user'},
-            {name: 'lastUpdated'},
-            {name: 'eventLog'},
+            {name: 'version', data: 'version' },
+            {
+              name: 'appId', 
+              type: "appid-numeric", 
+              data: 'id',
+              render:  (id, type, row) => `<span title="${id}"><a href="${row.attemptUrl}">${id}</a></span>`
+            },
+            {name: 'appName', data: 'name' },
+            {
+              name: attemptIdColumnName, 
+              data: 'attemptId',
+              render: (attemptId, type, row) => (attemptId ? `<a href="${row.attemptUrl}">${attemptId}</a>` : '')
+            },
+            {name: startedColumnName, data: 'startTime' },
+            {name: completedColumnName, data: 'endTime' },
+            {name: durationColumnName, type: "title-numeric", data: 'duration' },
+            {name: 'user', data: 'sparkUser' },
+            {name: 'lastUpdated', data: 'lastUpdated' },
+            {
+              name: 'eventLog', 
+              data: 'log', 
+              render: (log, type, row) => `<a href="${log}" class="btn btn-info btn-mini">Download</a>` 
+            },
+          ],
+          "aoColumnDefs": [
+            {
+              aTargets: [0, 1, 2],
+              fnCreatedCell: (nTd, sData, oData, iRow, iCol) => {
+                if (hasMultipleAttempts) { 
+                  $(nTd).css('background-color', '#fff');
+                } 
+              }
+            },
           ],
           "autoWidth": false,
           "deferRender": true

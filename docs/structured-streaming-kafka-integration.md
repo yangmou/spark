@@ -61,7 +61,7 @@ val df = spark
   .option("includeHeaders", "true")
   .load()
 df.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)", "headers")
-  .as[(String, String, Map)]
+  .as[(String, String, Array[(String, Array[Byte])])]
 
 // Subscribe to multiple topics
 val df = spark
@@ -440,9 +440,10 @@ The following configurations are optional:
 <tr>
   <td>kafkaConsumer.pollTimeoutMs</td>
   <td>long</td>
-  <td>512</td>
+  <td>120000</td>
   <td>streaming and batch</td>
-  <td>The timeout in milliseconds to poll data from Kafka in executors.</td>
+  <td>The timeout in milliseconds to poll data from Kafka in executors. When not defined it falls
+  back to <code>spark.network.timeout</code>.</td>
 </tr>
 <tr>
   <td>fetchOffset.numRetries</td>
@@ -511,6 +512,26 @@ The following configurations are optional:
 </tr>
 </table>
 
+### Offset fetching
+
+In Spark 3.0 and before Spark uses <code>KafkaConsumer</code> for offset fetching which could cause infinite wait in the driver.
+In Spark 3.1 a new configuration option added <code>spark.sql.streaming.kafka.useDeprecatedOffsetFetching</code> (default: <code>true</code>)
+which could be set to `false` allowing Spark to use new offset fetching mechanism using <code>AdminClient</code>.
+When the new mechanism used the following applies.
+
+First of all the new approach supports Kafka brokers `0.11.0.0+`.
+
+In Spark 3.0 and below, secure Kafka processing needed the following ACLs from driver perspective:
+* Topic resource describe operation
+* Topic resource read operation
+* Group resource read operation
+
+Since Spark 3.1, offsets can be obtained with <code>AdminClient</code> instead of <code>KafkaConsumer</code> and for that the following ACLs needed from driver perspective:
+* Topic resource describe operation
+
+Since <code>AdminClient</code> in driver is not connecting to consumer group, <code>group.id</code> based authorization will not work anymore (executors never done group based authorization).
+Worth to mention executor side is behaving the exact same way like before (group prefix and override works).
+
 ### Consumer Caching
 
 It's time-consuming to initialize Kafka consumers, especially in streaming scenarios where processing time is a key factor.
@@ -528,28 +549,28 @@ The following properties are available to configure the consumer pool:
 <tr><th>Property Name</th><th>Default</th><th>Meaning</th><th>Since Version</th></tr>
 <tr>
   <td>spark.kafka.consumer.cache.capacity</td>
-  <td>The maximum number of consumers cached. Please note that it's a soft limit.</td>
   <td>64</td>
+  <td>The maximum number of consumers cached. Please note that it's a soft limit.</td>
   <td>3.0.0</td>
 </tr>
 <tr>
   <td>spark.kafka.consumer.cache.timeout</td>
-  <td>The minimum amount of time a consumer may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>5m (5 minutes)</td>
+  <td>The minimum amount of time a consumer may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>3.0.0</td>
 </tr>
 <tr>
   <td>spark.kafka.consumer.cache.evictorThreadRunInterval</td>
-  <td>The interval of time between runs of the idle evictor thread for consumer pool. When non-positive, no idle evictor thread will be run.</td>
   <td>1m (1 minute)</td>
+  <td>The interval of time between runs of the idle evictor thread for consumer pool. When non-positive, no idle evictor thread will be run.</td>
   <td>3.0.0</td>
 </tr>
 <tr>
   <td>spark.kafka.consumer.cache.jmx.enable</td>
+  <td>false</td>
   <td>Enable or disable JMX for pools created with this configuration instance. Statistics of the pool are available via JMX instance.
   The prefix of JMX name is set to "kafka010-cached-simple-kafka-consumer-pool".
   </td>
-  <td>false</td>
   <td>3.0.0</td>
 </tr>
 </table>
@@ -578,14 +599,14 @@ The following properties are available to configure the fetched data pool:
 <tr><th>Property Name</th><th>Default</th><th>Meaning</th><th>Since Version</th></tr>
 <tr>
   <td>spark.kafka.consumer.fetchedData.cache.timeout</td>
-  <td>The minimum amount of time a fetched data may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>5m (5 minutes)</td>
+  <td>The minimum amount of time a fetched data may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>3.0.0</td>
 </tr>
 <tr>
   <td>spark.kafka.consumer.fetchedData.cache.evictorThreadRunInterval</td>
-  <td>The interval of time between runs of the idle evictor thread for fetched data pool. When non-positive, no idle evictor thread will be run.</td>
   <td>1m (1 minute)</td>
+  <td>The interval of time between runs of the idle evictor thread for fetched data pool. When non-positive, no idle evictor thread will be run.</td>
   <td>3.0.0</td>
 </tr>
 </table>
@@ -825,14 +846,14 @@ The following properties are available to configure the producer pool:
 <tr><th>Property Name</th><th>Default</th><th>Meaning</th><th>Since Version</th></tr>
 <tr>
   <td>spark.kafka.producer.cache.timeout</td>
-  <td>The minimum amount of time a producer may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>10m (10 minutes)</td>
+  <td>The minimum amount of time a producer may sit idle in the pool before it is eligible for eviction by the evictor.</td>
   <td>2.2.1</td>
 </tr>
 <tr>
   <td>spark.kafka.producer.cache.evictorThreadRunInterval</td>
-  <td>The interval of time between runs of the idle evictor thread for producer pool. When non-positive, no idle evictor thread will be run.</td>
   <td>1m (1 minute)</td>
+  <td>The interval of time between runs of the idle evictor thread for producer pool. When non-positive, no idle evictor thread will be run.</td>
   <td>3.0.0</td>
 </tr>
 </table>
@@ -857,7 +878,13 @@ group id, however, please read warnings for this option and use it with caution.
  where to start instead. Structured Streaming manages which offsets are consumed internally, rather
  than rely on the kafka Consumer to do it. This will ensure that no data is missed when new
  topics/partitions are dynamically subscribed. Note that `startingOffsets` only applies when a new
- streaming query is started, and that resuming will always pick up from where the query left off.
+ streaming query is started, and that resuming will always pick up from where the query left off. Note
+ that when the offsets consumed by a streaming application no longer exist in Kafka (e.g., topics are deleted,
+ offsets are out of range, or offsets are removed after retention period), the offsets will not be reset
+ and the streaming application will see data loss. In extreme cases, for example the throughput of the
+ streaming application cannot catch up the retention speed of Kafka, the input rows of a batch might be
+ gradually reduced until zero when the offset ranges of the batch are completely not in Kafka. Enabling
+ `failOnDataLoss` option can ask Structured Streaming to fail the query for such cases.
 - **key.deserializer**: Keys are always deserialized as byte arrays with ByteArrayDeserializer. Use
  DataFrame operations to explicitly deserialize the keys.
 - **value.deserializer**: Values are always deserialized as byte arrays with ByteArrayDeserializer.
@@ -984,6 +1011,14 @@ Delegation tokens can be obtained from multiple clusters and <code>${cluster}</c
     <td>3.0.0</td>
   </tr>
   <tr>
+    <td><code>spark.kafka.clusters.${cluster}.ssl.truststore.type</code></td>
+    <td>None</td>
+    <td>
+      The file format of the trust store file. For further details please see Kafka documentation. Only used to obtain delegation token.
+    </td>
+    <td>3.2.0</td>
+  </tr>
+  <tr>
     <td><code>spark.kafka.clusters.${cluster}.ssl.truststore.location</code></td>
     <td>None</td>
     <td>
@@ -999,6 +1034,15 @@ Delegation tokens can be obtained from multiple clusters and <code>${cluster}</c
       For further details please see Kafka documentation. Only used to obtain delegation token.
     </td>
     <td>3.0.0</td>
+  </tr>
+  <tr>
+    <td><code>spark.kafka.clusters.${cluster}.ssl.keystore.type</code></td>
+    <td>None</td>
+    <td>
+      The file format of the key store file. This is optional for client.
+      For further details please see Kafka documentation. Only used to obtain delegation token.
+    </td>
+    <td>3.2.0</td>
   </tr>
   <tr>
     <td><code>spark.kafka.clusters.${cluster}.ssl.keystore.location</code></td>

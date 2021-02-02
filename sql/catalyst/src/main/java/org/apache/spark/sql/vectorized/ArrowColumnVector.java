@@ -17,7 +17,6 @@
 
 package org.apache.spark.sql.vectorized;
 
-import io.netty.buffer.ArrowBuf;
 import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.*;
 import org.apache.arrow.vector.holders.NullableVarCharHolder;
@@ -171,6 +170,8 @@ public final class ArrowColumnVector extends ColumnVector {
       for (int i = 0; i < childColumns.length; ++i) {
         childColumns[i] = new ArrowColumnVector(structVector.getVectorById(i));
       }
+    } else if (vector instanceof NullVector) {
+      accessor = new NullAccessor((NullVector) vector);
     } else {
       throw new UnsupportedOperationException();
     }
@@ -458,10 +459,8 @@ public final class ArrowColumnVector extends ColumnVector {
 
     @Override
     final ColumnarArray getArray(int rowId) {
-      ArrowBuf offsets = accessor.getOffsetBuffer();
-      int index = rowId * ListVector.OFFSET_WIDTH;
-      int start = offsets.getInt(index);
-      int end = offsets.getInt(index + ListVector.OFFSET_WIDTH);
+      int start = accessor.getElementStartIndex(rowId);
+      int end = accessor.getElementEndIndex(rowId);
       return new ColumnarArray(arrayData, start, end - start);
     }
   }
@@ -500,6 +499,13 @@ public final class ArrowColumnVector extends ColumnVector {
       int offset = accessor.getOffsetBuffer().getInt(index);
       int length = accessor.getInnerValueCountAt(rowId);
       return new ColumnarMap(keys, values, offset, length);
+    }
+  }
+
+  private static class NullAccessor extends ArrowVectorAccessor {
+
+    NullAccessor(NullVector vector) {
+      super(vector);
     }
   }
 }

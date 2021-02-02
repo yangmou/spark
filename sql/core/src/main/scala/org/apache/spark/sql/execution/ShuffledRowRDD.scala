@@ -133,10 +133,9 @@ class ShuffledRowRDD(
       Array.tabulate(dependency.partitioner.numPartitions)(i => CoalescedPartitionSpec(i, i + 1)))
   }
 
-  if (SQLConf.get.fetchShuffleBlocksInBatch) {
-    dependency.rdd.context.setLocalProperty(
-      SortShuffleManager.FETCH_SHUFFLE_BLOCKS_IN_BATCH_ENABLED_KEY, "true")
-  }
+  dependency.rdd.context.setLocalProperty(
+    SortShuffleManager.FETCH_SHUFFLE_BLOCKS_IN_BATCH_ENABLED_KEY,
+    SQLConf.get.fetchShuffleBlocksInBatch.toString)
 
   override def getDependencies: Seq[Dependency[_]] = List(dependency)
 
@@ -191,7 +190,7 @@ class ShuffledRowRDD(
           sqlMetricsReporter)
 
       case PartialReducerPartitionSpec(reducerIndex, startMapIndex, endMapIndex, _) =>
-        SparkEnv.get.shuffleManager.getReaderForRange(
+        SparkEnv.get.shuffleManager.getReader(
           dependency.shuffleHandle,
           startMapIndex,
           endMapIndex,
@@ -201,7 +200,7 @@ class ShuffledRowRDD(
           sqlMetricsReporter)
 
       case PartialMapperPartitionSpec(mapIndex, startReducerIndex, endReducerIndex) =>
-        SparkEnv.get.shuffleManager.getReaderForRange(
+        SparkEnv.get.shuffleManager.getReader(
           dependency.shuffleHandle,
           mapIndex,
           mapIndex + 1,

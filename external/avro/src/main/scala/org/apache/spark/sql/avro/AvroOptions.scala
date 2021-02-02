@@ -27,7 +27,7 @@ import org.apache.spark.sql.internal.SQLConf
 /**
  * Options for Avro Reader and Writer stored in case insensitive manner.
  */
-class AvroOptions(
+private[sql] class AvroOptions(
     @transient val parameters: CaseInsensitiveMap[String],
     @transient val conf: Configuration) extends Logging with Serializable {
 
@@ -51,14 +51,14 @@ class AvroOptions(
 
   /**
    * Top level record name in write result, which is required in Avro spec.
-   * See https://avro.apache.org/docs/1.8.2/spec.html#schema_record .
+   * See https://avro.apache.org/docs/1.10.1/spec.html#schema_record .
    * Default value is "topLevelRecord"
    */
   val recordName: String = parameters.getOrElse("recordName", "topLevelRecord")
 
   /**
    * Record namespace in write result. Default value is "".
-   * See Avro spec for details: https://avro.apache.org/docs/1.8.2/spec.html#schema_record .
+   * See Avro spec for details: https://avro.apache.org/docs/1.10.1/spec.html#schema_record .
    */
   val recordNamespace: String = parameters.getOrElse("recordNamespace", "")
 
@@ -95,7 +95,7 @@ class AvroOptions(
     parameters.get("mode").map(ParseMode.fromString).getOrElse(FailFastMode)
 }
 
-object AvroOptions {
+private[sql] object AvroOptions {
   def apply(parameters: Map[String, String]): AvroOptions = {
     val hadoopConf = SparkSession
       .getActiveSession
